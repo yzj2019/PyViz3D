@@ -1,11 +1,15 @@
-"""Scene class i.e. pointcept codebase data dict"""
+"""
+Scene class i.e. pointcept codebase data dict
+
+希望做成同一个scene, 共享多个表示 (pointcloud, mesh, gridcoord), 不重复
+"""
 
 
 class Scene:
     """build from pointcept data_dict"""
 
     def __init__(self, data_dict, cls):
-        assert cls in ["VoxelGrid", "PointCloud", "Mesh"]
+        assert cls in ["VoxelGrid", "Mesh"]
         self.data_dict = data_dict
         self.cls = cls
         self.build_scene()

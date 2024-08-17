@@ -142,10 +142,146 @@ function onMouseClick(event) {
 
 
 // TODO 加一个 object 管理 gui，用于增加、减少 objcet，选择 object 增加、减少 click
+// TODO 每个 object 显示两个属性：prompt、result，放一个集中控件，用于控制整体显示与否
+// 显示代表改变 scene 的颜色
 // TODO 一个 forward 按钮，用于推送 click map 到后端，后端再转化为 query
+
+// TODO 加一个 object 选择按钮
+
+function onMouseDown(event) {
+	// 鼠标按下的回调函数
+    if (event.button === 0) { // 检测是否是鼠标左键
+        is_mouse_down = true;
+
+        // 当按住 CTRL 时禁用 OrbitControls 的旋转
+        if (event.ctrlKey || event.altKey) {
+            controls.enabled = false;
+        } else {
+            controls.enabled = true;
+        }
+    }
+}
+
+
+function onMouseUp(event) {
+	// 鼠标抬起的回调函数
+    if (event.button === 0) { // 检测是否是鼠标左键
+        is_mouse_down = false;
+        controls.enabled = true; // 释放鼠标后恢复 OrbitControls 的旋转
+    }
+}
+
+
+function handlePointCloudSelect(event, intersection) {
+	// 处理 PointCloud 选中
+	const index = intersection.index;
+	const object = intersection.object
+	const colorAttribute = object.geometry.attributes.color;	// THREE.Float32BufferAttribute
+	const positionAttribute = object.geometry.attributes.position;
+
+	if (!('_originColor' in object)) {
+		// 创建克隆的 _originColor
+		object._originColor = structuredClone(colorAttribute.array);
+	}
+	if (event.ctrlKey) {
+		// 设置颜色
+		click_set_color(colorAttribute, index, [1, 0, 0]);
+	} else if (event.altKey) {
+		// 恢复颜色
+		click_reset_color(colorAttribute, index, object._originColor);
+	}
+}
+
+function handleMeshSelect(event, intersection) {
+	// 处理 Mesh 选中
+	const face = intersection.face;
+	const faceIndex = intersection.faceIndex;
+	const object = intersection.object
+	const colorAttribute = object.geometry.attributes.color;	// THREE.Float32BufferAttribute
+	const positionAttribute = object.geometry.attributes.position;
+
+	if (!('_originColor' in object)) {
+		// 创建克隆的 _originColor
+		object._originColor = structuredClone(colorAttribute.array);
+	}
+	if (event.ctrlKey) {
+		// 设置颜色
+		click_set_color(colorAttribute, face.a, [1, 0, 0]);
+		click_set_color(colorAttribute, face.b, [1, 0, 0]);
+		click_set_color(colorAttribute, face.c, [1, 0, 0]);
+	} else if (event.altKey) {
+		// 恢复颜色
+		click_reset_color(colorAttribute, face.a, object._originColor);
+		click_reset_color(colorAttribute, face.b, object._originColor);
+		click_reset_color(colorAttribute, face.c, object._originColor);
+	}
+}
+
+// function: mouse hang over set color
+function hover_set_color(object, colorAttribute, index, color) {
+	/**
+	 * object: object._prev_hover
+	 * colorAttribute: THREE.Float32BufferAttribute
+	 * index: index to change, like [0, 1]
+	 * color: color to change, like [[1,0,0], [0,1,0]] for index [0, 1]; or [1,0,0], will be converted to [[1,0,0], [1,0,0]]
+	 * **/
+	// 处理数组成二维
+	if (color.length > 0) {
+		if (!Array.isArray(color[0])) {
+			color = index.map(() => [...color]);
+		}
+	}
+	console.assert(index.length == color.length, "index.length must be equal to color.length");
+	// 恢复旧位置原色
+	if (object._prev_hover.index != null) {
+		const prev_index = object._prev_hover.index
+		const prev_color = object._prev_hover.color
+		for (let i = 0; i < prev_index.length; i++) {
+			colorAttribute.setXYZ(
+				prev_index[i],		// coord index
+				prev_color[i][0],	// r
+				prev_color[i][1],	// g
+				prev_color[i][2]	// b
+			);
+		}
+	}
+	// 记录新位置和原色
+	object._prev_hover.index = index
+	object._prev_hover.color = structuredClone(color)
+	const prev_color = object._prev_hover.color
+	for (let i = 0; i < index.length; i++) {
+		prev_color[i][0] = colorAttribute.getX(index[i]);	// r
+		prev_color[i][1] = colorAttribute.getY(index[i]);	// g
+		prev_color[i][2] = colorAttribute.getZ(index[i]);	// b
+	}
+	// 设置新颜色
+	for (let i = 0; i < index.length; i++) {
+		colorAttribute.setXYZ(
+			index[i],
+			color[i][0],
+			color[i][1],
+			color[i][2]
+		);
+	}
+	colorAttribute.needsUpdate = true;
+}
 
 
 function onMouseMove(event) {
+	if (!(event.ctrlKey || event.altKey)) {
+		if (intersection != null) {
+			// 想要结束hover选中块显示, 同时上一次非空
+			prev_intersection = intersection;
+			let object = intersection.object;
+			let colorAttribute = object.geometry.attributes.color;
+			intersection = null;
+			hover_set_color(object, colorAttribute, [], []);
+			render();
+		}
+		return;
+	}
+
+	// 处理鼠标选中
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
 
@@ -157,57 +293,6 @@ function onMouseMove(event) {
 	let object = null;
 	let colorAttribute = null;
 	let need_render = false;
-	let intersection = null;
-	let prev_intersection = null;
-
-	// function: set color
-	function set_color(object, colorAttribute, index, color) {
-		/**
-		 * object: object._prev_hover
-		 * colorAttribute: THREE.Float32BufferAttribute
-		 * index: index to change, like [0, 1]
-		 * color: color to change, like [[1,0,0], [0,1,0]] for index [0, 1]; or [1,0,0], will be converted to [[1,0,0], [1,0,0]]
-		 * **/
-		// 处理数组成二维
-		if (color.length > 0) {
-			if (!Array.isArray(color[0])) {
-				color = index.map(() => [...color]);
-			}
-		}
-		console.assert(index.length == color.length, "index.length must be equal to color.length");
-		// 恢复旧位置原色
-		if (object._prev_hover.index != null) {
-			const prev_index = object._prev_hover.index
-			const prev_color = object._prev_hover.color
-			for (let i = 0; i < prev_index.length; i++) {
-				colorAttribute.setXYZ(
-					prev_index[i],		// coord index
-					prev_color[i][0],	// r
-					prev_color[i][1],	// g
-					prev_color[i][2]	// b
-				);
-			}
-		}
-		// 记录新位置和原色
-		object._prev_hover.index = index
-		object._prev_hover.color = structuredClone(color)
-		const prev_color = object._prev_hover.color
-		for (let i = 0; i < index.length; i++) {
-			prev_color[i][0] = colorAttribute.getX(index[i]);	// r
-			prev_color[i][1] = colorAttribute.getY(index[i]);	// g
-			prev_color[i][2] = colorAttribute.getZ(index[i]);	// b
-		}
-		// 设置新颜色
-		for (let i = 0; i < index.length; i++) {
-			colorAttribute.setXYZ(
-				index[i],
-				color[i][0],
-				color[i][1],
-				color[i][2]
-			);
-		}
-		colorAttribute.needsUpdate = true;
-	}
 
 	// 处理 intersection
 	if (intersections.length > 0) {
@@ -232,23 +317,26 @@ function onMouseMove(event) {
 				need_render = false;
 			} else {
 				need_render = true;
-				set_color(object, colorAttribute, [index], [1, 0, 0]);
+				hover_set_color(object, colorAttribute, [index], [1, 0, 0]);
 			}
 		} else if (object instanceof THREE.Mesh){
 			// 处理 mesh
 			const face = intersection.face;
-			if (prev_intersection != null && prev_intersection.faceIndex != intersection.faceIndex) {
+			if (prev_intersection != null && prev_intersection.faceIndex == intersection.faceIndex) {
 				need_render = false;
 			} else {
 				need_render = true;
-				set_color(object, colorAttribute, [face.a, face.b, face.c], [1, 0, 0]);
+				hover_set_color(object, colorAttribute, [face.a, face.b, face.c], [1, 0, 0]);
 			}
 		}
 	} else if (intersection != null) {
+		// 本次交叉空, 同时上一次非空
 		prev_intersection = intersection;
+		object = intersection.object
+		colorAttribute = object.geometry.attributes.color;
 		intersection = null;
 		need_render = true;
-		set_color(object, colorAttribute, [], []);
+		hover_set_color(object, colorAttribute, [], []);
 	}
 	if (need_render) {
 		render();
@@ -420,6 +508,27 @@ function init_gui(objects) {
 			}
 		}
 	}
+
+	// object 选择相关
+	const objectFolder = gui.addFolder('Objects');
+
+    // Function to add a new object
+    const addObject = () => {
+        const objectName = `object_${Object.keys(my_objects).length}`;
+        my_objects[objectName] = {};
+
+        const objectControl = objectFolder.addFolder(objectName);
+        objectControl.add({ delete: () => deleteObject(objectName, objectControl) }, 'delete').name('Delete');
+    };
+
+    // Function to delete an object
+    const deleteObject = (objectName, objectControl) => {
+        delete my_objects[objectName];
+		objectControl.destroy();
+    };
+
+    // Add button to add new objects
+    gui.add({ addObject }, 'addObject').name('+');
 }
 
 
@@ -476,16 +585,11 @@ function init(){
 	// 因为 intersection 是按照 'distance' (to camera) 去排序的
 	raycaster.params.Points.threshold = 0.01;
 	intersection = null;
+	prev_intersection = null;
 	mouse = new THREE.Vector2();
-	// 创建用于可视化射线的几何体和材质
-	// const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
-	// const points = [
-	//     new THREE.Vector3(0, 0, 0),
-	//     new THREE.Vector3(0, 0, 0),
-	// ];
-	// const geometry = new THREE.BufferGeometry().setFromPoints(points);
-	// line = new THREE.Line(geometry, material);
-	// scene.add(line);
+	is_mouse_down = false;
+	// objects 相关
+	my_objects = {};
 }
 
 
@@ -562,10 +666,11 @@ document.getElementById('render_container').appendChild(renderer.domElement)
 // document.getElementById('render_container').appendChild(labelRenderer.domElement)
 
 window.addEventListener('resize', onWindowResize, false);
-// Add single click event listener
-renderer.domElement.addEventListener('click', onMouseClick, false);
-// Hang over
-// renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+// 监听鼠标事件
+renderer.domElement.addEventListener('mousedown', onMouseDown);
+renderer.domElement.addEventListener('mousemove', onMouseMove);
+renderer.domElement.addEventListener('mouseup', onMouseUp);
+// renderer.domElement.addEventListener('click', onMouseClick, false);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.01, 1000);
 var controls = '';
@@ -574,14 +679,11 @@ const gui = new GUI({autoPlace: true, width: 120});
 // dict containing all objects of the scene
 let threejs_objects = {};
 // 声明鼠标点击相关变量, 在 init() 中初始化
-let raycaster, intersection, mouse;
-// 选择 scene
-let scene_params = {
-	selected_scene: null
-};
+let raycaster, intersection, prev_intersection, mouse, is_mouse_down;
+// object 相关变量
+let my_objects;
 
 init();
-
 
 
 // Load nodes.json and perform one after the other the following commands:
