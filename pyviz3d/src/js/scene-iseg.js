@@ -509,22 +509,37 @@ function init_gui(objects) {
 		}
 	}
 
-	// object 选择相关
+	// 待分割 object 选择相关
 	const objectFolder = gui.addFolder('Objects');
+	const objectSelect = objectFolder.add({ selected_seg_object }, 'select', []).onChange(value => {
+		console.log(`Selected: ${value}, Value: ${seg_objects[value]}`);
+	});
+
+	// Function to delete an object
+	const deleteObject = (objectName, objectControl) => {
+		delete seg_objects[objectName];
+		objectControl.destroy();
+
+		// 更新下拉菜单
+		const seg_objects_keys = Object.keys(seg_objects);  // 获取新的字典 keys
+		if (seg_objects_keys.length > 0) {
+			objectSelect.options(seg_objects_keys);
+			if (objectName == selected_seg_object) {
+				objectSelect.setValue(seg_objects_keys[0]);  // 设置下拉菜单当前选项
+			}
+		}
+    };
 
     // Function to add a new object
     const addObject = () => {
-        const objectName = `object_${Object.keys(my_objects).length}`;
-        my_objects[objectName] = {};
+        const objectName = `object_${Object.keys(seg_objects).length}`;
+        seg_objects[objectName] = {};
 
-        const objectControl = objectFolder.addFolder(objectName);
-        objectControl.add({ delete: () => deleteObject(objectName, objectControl) }, 'delete').name('Delete');
-    };
-
-    // Function to delete an object
-    const deleteObject = (objectName, objectControl) => {
-        delete my_objects[objectName];
-		objectControl.destroy();
+		const objectControl = objectFolder.addFolder(objectName);
+		objectControl.close();
+		objectControl.add({ delete: () => deleteObject(objectName, objectControl) }, 'delete').name('Delete');
+		// 更新下拉菜单
+		objectSelect.options(Object.keys(seg_objects));
     };
 
     // Add button to add new objects
@@ -588,8 +603,9 @@ function init(){
 	prev_intersection = null;
 	mouse = new THREE.Vector2();
 	is_mouse_down = false;
-	// objects 相关
-	my_objects = {};
+	// 待分割 objects 相关
+	seg_objects = {};
+	selected_seg_object = null;
 }
 
 
@@ -680,8 +696,8 @@ const gui = new GUI({autoPlace: true, width: 120});
 let threejs_objects = {};
 // 声明鼠标点击相关变量, 在 init() 中初始化
 let raycaster, intersection, prev_intersection, mouse, is_mouse_down;
-// object 相关变量
-let my_objects;
+// 待分割 object 相关变量
+let seg_objects, selected_seg_object;
 
 init();
 
