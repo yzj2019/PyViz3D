@@ -1,0 +1,102 @@
+@import url(https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css);
+@import url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.css);
+
+body .card {
+	--background: #fff;
+	--text: black;
+	position: relative; /* 相对定位以便于在 lil-gui 内部调整 */
+	height: 3rem; /* 确保卡片有足够高度容纳按钮 */
+	width: auto; /* 适应 lil-gui 父容器的宽度 */
+	box-shadow: 0 0 2rem -1rem rgba(0, 0, 0, 0.05);
+	background: var(--background); /* 背景色 */
+	overflow: hidden; /* 防止内容溢出 */
+	padding: 0.5rem; /* 卡片内部留白 */
+	border-radius: 0rem; /* 圆角效果 */
+	display: flex; /* 使用 Flexbox 布局 */
+	align-items: center; /* 垂直居中 */
+	justify-content: space-between; /* 子元素之间的间距 */
+	z-index: 100; /* 确保 card 在前面 */
+}
+
+body .card .card-text {
+	margin: 0; /* 去掉默认的 p 标签边距 */
+	flex-grow: 1; /* 占据剩余的空间 */
+	color: var(--text); /* 文字颜色 */
+	font-size: 1rem; /* 字体大小 */
+	text-align: left !important; /* 强制左对齐 */
+	padding-left: 0.1rem; /* 左边留白 */
+	overflow: hidden; /* 隐藏溢出文本 */
+	white-space: nowrap; /* 不换行 */
+	text-overflow: ellipsis; /* 超出文本用省略号显示 */
+}
+
+body .card .multi-button {
+	position: absolute;
+	top: 50%; /* 垂直居中 */
+	right: 0.5rem; /* 靠近卡片右边 */
+	transform: translateY(-50%) translateX(100%); /* 初始状态：隐藏在卡片右侧 */
+	display: flex;
+	flex-direction: row; /* 横向排列 */
+	align-items: center;
+	width: 0; /* 初始宽度为 0 */
+	overflow: hidden; /* 隐藏溢出的内容 */
+	transition: width 0.25s cubic-bezier(0.25, 0, 0, 1), transform 0.25s cubic-bezier(0.25, 0, 0, 1); /* 动画效果 */
+}
+
+body .card .multi-button button {
+	display: grid;
+	place-items: center;
+	width: 2rem; /* 更改为正方形按钮 */
+	height: 2rem;
+	margin-left: 0.25rem; /* 按钮之间的间距 */
+	border: none;
+	border-radius: 0.5rem; /* 圆角 */
+	background: var(--background);
+	color: var(--text);
+	cursor: pointer;
+	transition: 0.25s cubic-bezier(0.25, 0, 0, 1);
+	box-shadow: 0 0 0 -0.25rem var(--background);
+}
+
+body .card .multi-button button:hover {
+	background: var(--text);
+	color: var(--background);
+	box-shadow: 0 0 1rem -0.25rem var(--background);
+}
+
+body .card:hover .multi-button,
+body .card .multi-button:focus-within {
+	width: auto; /* 自动扩展以适应内容 */
+	transform: translateY(-50%) translateX(0); /* 显示并展开 */
+}
+
+/* Custom color pickr */
+hex-color-picker {
+	width: 120px;
+	height: 120px;
+    z-index: 1001; /* 增加 z-index，确保不被 lil-gui 遮挡 */
+}
+
+hex-color-picker::part(hue) {
+	height: 10px;
+}
+
+hex-color-picker::part(saturation-pointer) {
+	width: 16px;
+	height: 16px;
+	border-radius: 3px;
+}
+
+hex-color-picker::part(hue-pointer),
+hex-color-picker::part(alpha-pointer) {
+	width: 16px;
+	border-radius: 3px;
+}
+
+hex-color-picker:not(.open) {
+    display: none;      /* 初始状态为隐藏 */
+}
+
+hex-color-picker.open {
+    position: absolute;
+}

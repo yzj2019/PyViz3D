@@ -75,7 +75,7 @@ class Visualizer:
         directory_source = os.path.realpath(os.path.join(os.path.dirname(__file__), "src"))
         shutil.copytree(directory_source, directory_destination)
 
-        # use index-iseg.html as index.html
+        # use index-iseg.html instead as index.html
         html_src = os.path.join(directory_destination, "index-iseg.html")
         html_tgt = os.path.join(directory_destination, "index.html")
         os.remove(html_tgt)

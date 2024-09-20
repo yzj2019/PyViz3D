@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { OBJLoader } from     'three/addons/loaders/OBJLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
-import { GUI } from           'three/addons/libs/lil-gui.module.min.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import { SegObjects } from './object_select.js'; // 导入 SegObjects 类
+
 
 let num_objects_curr = 0;
 let num_objects = 100;
@@ -15,6 +16,9 @@ const layers = {
 		camera.layers.toggle(0);
 	}
 }
+
+// .layers : Layers
+// 物体的层级关系。 物体只有和一个正在使用的Camera至少在同一个层时才可见。当使用Raycaster进行射线检测的时候此项属性可以用于过滤不参与检测的物体.
 
 // TODO 维护一个 scene_name, 用于选择渲染的场景, 改下面的代码对应的名称
 
@@ -148,26 +152,30 @@ function onMouseClick(event) {
 
 // TODO 加一个 object 选择按钮
 
+// TODO 每个scene只维护一个 selected，若是已经选中则不选，保证两个 object 不重叠
+
+// TODO 选中 操作发送到后端，由后端维护每个prompt的形状
+
 function onMouseDown(event) {
 	// 鼠标按下的回调函数
+	// 当按住 CTRL 时禁用 OrbitControls 的旋转
+	if (event.ctrlKey || event.altKey) {
+		controls.enabled = false;
+	} else {
+		controls.enabled = true;
+	}
+
     if (event.button === 0) { // 检测是否是鼠标左键
         is_mouse_down = true;
-
-        // 当按住 CTRL 时禁用 OrbitControls 的旋转
-        if (event.ctrlKey || event.altKey) {
-            controls.enabled = false;
-        } else {
-            controls.enabled = true;
-        }
     }
 }
 
 
 function onMouseUp(event) {
 	// 鼠标抬起的回调函数
+	controls.enabled = true; // 释放鼠标后恢复 OrbitControls 的旋转
     if (event.button === 0) { // 检测是否是鼠标左键
         is_mouse_down = false;
-        controls.enabled = true; // 释放鼠标后恢复 OrbitControls 的旋转
     }
 }
 
@@ -444,6 +452,7 @@ function get_mesh(properties){
 		let b = properties['color'][2]
 		let colorString = "rgb("+r+","+g+", "+b+")"
 		if (geometry.isObject3D) {  // obj
+			// 这里 obj 文件中可包含多个 mesh, 因此返回的通常是个 Group 对象
 			object = geometry;
 			object.traverse(
 				function(child) {
@@ -452,20 +461,37 @@ function get_mesh(properties){
 					}
 				});
 		} else {  // ply
-			const materialShader = (geometry.hasAttribute('normal')) ? THREE.MeshPhongMaterial : THREE.MeshBasicMaterial
-			const material = new materialShader({vertexColors: geometry.hasAttribute('color')})
+			const materialShader = (geometry.hasAttribute('normal')) ? THREE.MeshPhongMaterial : THREE.MeshBasicMaterial;
+			const material = new materialShader({ vertexColors: geometry.hasAttribute('color') });
 			if (!geometry.hasAttribute){
 				material.color.set(new THREE.Color(colorString));
 			}
 			object = new THREE.Mesh(geometry, material);
 		}
 
-		object.scale.set(properties['scale'][0], properties['scale'][1], properties['scale'][2])
-		object.setRotationFromQuaternion(new THREE.Quaternion(properties['rotation'][0], properties['rotation'][1], properties['rotation'][2], properties['rotation'][3]))
-		object.position.set(properties['translation'][0], properties['translation'][1], properties['translation'][2])
-		container.add(object)
+		object.scale.set(
+			properties["scale"][0],
+			properties["scale"][1],
+			properties["scale"][2]
+		);
+		object.setRotationFromQuaternion(
+			new THREE.Quaternion(
+				properties["rotation"][0],
+				properties["rotation"][1],
+				properties["rotation"][2],
+				properties["rotation"][3]
+			)
+		);
+		object.position.set(
+			properties["translation"][0],
+			properties["translation"][1],
+			properties["translation"][2]
+		);
+		container.add(object);
 		step_progress_bar();
 		render();
+		// 设定 seg_objects 共享 attributes 用的 geometry
+		seg_objects.set_attribute({geometry:geometry});	// 异步，比 init_gui 慢
 	}
 	const filename_extension = properties['filename'].split('.').pop()
 	console.log(filename_extension)
@@ -487,6 +513,9 @@ function get_mesh(properties){
 				});
 	return container
 }
+
+// TODO get scene 手动创建几何体，确保复用 geometry attributes
+// 没必要加 material.color, 直接用顶点颜色就够
 
 
 function init_gui(objects) {
@@ -511,39 +540,8 @@ function init_gui(objects) {
 
 	// 待分割 object 选择相关
 	const objectFolder = gui.addFolder('Objects');
-	const objectSelect = objectFolder.add({ selected_seg_object }, 'select', []).onChange(value => {
-		console.log(`Selected: ${value}, Value: ${seg_objects[value]}`);
-	});
-
-	// Function to delete an object
-	const deleteObject = (objectName, objectControl) => {
-		delete seg_objects[objectName];
-		objectControl.destroy();
-
-		// 更新下拉菜单
-		const seg_objects_keys = Object.keys(seg_objects);  // 获取新的字典 keys
-		if (seg_objects_keys.length > 0) {
-			objectSelect.options(seg_objects_keys);
-			if (objectName == selected_seg_object) {
-				objectSelect.setValue(seg_objects_keys[0]);  // 设置下拉菜单当前选项
-			}
-		}
-    };
-
-    // Function to add a new object
-    const addObject = () => {
-        const objectName = `object_${Object.keys(seg_objects).length}`;
-        seg_objects[objectName] = {};
-
-		const objectControl = objectFolder.addFolder(objectName);
-		objectControl.close();
-		objectControl.add({ delete: () => deleteObject(objectName, objectControl) }, 'delete').name('Delete');
-		// 更新下拉菜单
-		objectSelect.options(Object.keys(seg_objects));
-    };
-
-    // Add button to add new objects
-    gui.add({ addObject }, 'addObject').name('+');
+	// 待分割 objects 相关
+	seg_objects.set_attribute({container:objectFolder.$children});
 }
 
 
@@ -603,9 +601,6 @@ function init(){
 	prev_intersection = null;
 	mouse = new THREE.Vector2();
 	is_mouse_down = false;
-	// 待分割 objects 相关
-	seg_objects = {};
-	selected_seg_object = null;
 }
 
 
@@ -635,7 +630,7 @@ function create_threejs_objects(properties){
 	}
 	
 	// Add axis helper
-	threejs_objects['Axis'] = new THREE.AxesHelper(1);
+	// threejs_objects['Axis'] = new THREE.AxesHelper(1);
 
 	render();
 }
@@ -697,9 +692,13 @@ let threejs_objects = {};
 // 声明鼠标点击相关变量, 在 init() 中初始化
 let raycaster, intersection, prev_intersection, mouse, is_mouse_down;
 // 待分割 object 相关变量
-let seg_objects, selected_seg_object;
+let seg_objects = new SegObjects({
+	scene: scene,
+	render_func: render,
+});
 
 init();
+
 
 
 // Load nodes.json and perform one after the other the following commands:
