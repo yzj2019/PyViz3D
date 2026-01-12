@@ -167,8 +167,13 @@ class SegObjects {
 	constructor(options = {}) {
 		// options = {container: domElement}
 		this.obj_name_cnt = 0;		// 避免命名重复
-		this.objectDict = {}; // 存放 objects 相关数据
+		this.objectDict = {}; 		// 存放 objects 相关数据
 		this.selected_obj = null;		// 选中的 obj name
+		this.annotation = {
+			pos: new Set(),			// 正向 prompt 的 mask 的 faceIndex
+			neg: new Set(),			// 负向 prompt 的 mask 的 faceIndex
+			result: null,			// 结果 mask
+		};
 		this.scene = options.scene;		// THREE.Scene
 		this.render_func = options.render_func;	// renderer.render(scene, camera)
 		this.sem_names = options.sem_names ?? ["0"]; // 语义类别的名称
@@ -241,32 +246,34 @@ class SegObjects {
 			SegObjects.colorPalette[this.obj_name_cnt % SegObjects.colorPalette.length];
 		this.objectDict[idx].color = color;
 
-		// 1. 创建 mesh 几何体 object3D
-		// TODO 有问题，[.WebGL-0000563C04299400] GL_INVALID_ENUM: Invalid enum provided.
-		// 定义 mesh 的几何
-		const geometry = new THREE.BufferGeometry();
-		['position', 'normal'].forEach(attr => {
-			if (this.geometry.hasAttribute(attr)) {
-				geometry.setAttribute(attr, this.geometry.getAttribute(attr));
-			}
-		});
-		geometry.setIndex(new THREE.Uint16BufferAttribute([], 1)); // 确保索引有效
+		// // 1. 创建 mesh 几何体 object3D
+		// // 定义 mesh 的几何
+		// const geometry = new THREE.BufferGeometry();
+		// ['position', 'normal'].forEach(attr => {
+		// 	if (this.geometry.hasAttribute(attr)) {
+		// 		geometry.setAttribute(attr, this.geometry.getAttribute(attr));
+		// 	}
+		// });
+		// const index = new Uint16Array(this.max_faces * 3); // 3 vertices per face
+		// geometry.setIndex(new THREE.Uint16BufferAttribute(index, 1)); // 确保索引有效
+		// geometry.setDrawRange(0, 0);
 
-		// 创建可能带 normal 的材质
-		const materialShader = (geometry.hasAttribute('normal')) ?
-			THREE.MeshPhongMaterial : THREE.MeshBasicMaterial;
-		const material = new materialShader({
-			color: new THREE.Color(color), // 确保使用 THREE.Color
-			vertexColors: false // 渲染时禁用顶点颜色
-		});
+		// // 创建可能带 normal 的材质
+		// const materialShader = (geometry.hasAttribute('normal')) ?
+		// 	THREE.MeshPhongMaterial : THREE.MeshBasicMaterial;
+		// const material = new materialShader({
+		// 	color: new THREE.Color(color), // 确保使用 THREE.Color
+		// 	vertexColors: false // 渲染时禁用顶点颜色
+		// });
 
-		// 创建几何体 object3D
-		const obj = new THREE.Mesh(geometry, material);
-		console.log("add obj geometry", geometry);
-		console.log("add obj material", material);
-		this.objectDict[idx].object = obj;
-		this.scene.add(obj);
-		this.render_func();
+		// // 创建几何体 object3D
+		// const obj = new THREE.Mesh(geometry, material);
+		// console.log("add obj geometry", geometry);
+		// console.log("add obj material", material);
+		// this.objectDict[idx].object = obj;
+		// this.objectDict[idx].face_cnt = 0;		// 初始面数
+		// this.scene.add(obj);
+		// this.render_func();
 
 		// 2. 定义卡片
 		const card = new Card({
@@ -285,7 +292,7 @@ class SegObjects {
 			(hex) => {
 				card.setColor({ background: hex });
 				this.objectDict[idx].color = hex;
-				this.objectDict[idx].object.material.color.set(new THREE.Color(hex)); // 确保使用 THREE.Color
+				this.objectDict[idx].object.material.color.set(hex); // 允许直接使用 hex string
 				this.render_func();
 			}
 		);
@@ -310,6 +317,8 @@ class SegObjects {
 		
 	}
 
+	//TODO 改，不在这里添加 object，只用多个 set 控制面元的判断
+	// 因为没法细粒度地控制增加和删除面元
 
 	// 左键加，右键抹除
 	modifyObject(options = {}) {
@@ -320,6 +329,38 @@ class SegObjects {
 		// 输入的 point prompt 为 man made part mask 里采样
 		const op = options.op ?? "add";
 		const type = options.type ?? "pos";
+		const idx = '0';
+		const object = this.objectDict[idx].object;
+		const face_cnt = this.objectDict[idx].face_cnt;
+		const face = options.face;
+		const faceIndex = options.faceIndex;
+		switch(op) {
+			case 'add':
+				if (!this.annotation[type].has(faceIndex)) {
+					this.annotation[type].add(faceIndex);
+					object.geometry.index.setXYZ(
+						face_cnt * 3,
+						face.a, face.b, face.c
+					);
+					object.geometry.index.needsUpdate = true;
+					object.geometry.index.updateRange.offset = face_cnt * 3;
+					object.geometry.index.updateRange.count = 3;
+					object.geometry.setDrawRange(0, face_cnt + 1);
+					this.objectDict[idx].face_cnt += 1;
+					// TODO 扩容 index
+				}
+				break;
+			case 'del':
+				if (this.annotation[type].has(faceIndex)) {
+					this.annotation[type].delete(faceIndex);
+					object.geometry.setDrawRange(0, face_cnt - 1);
+					this.objectDict[idx].face_cnt -= 1;
+				}
+				break;
+			default:
+				console.log("invalid op type");
+				break;
+		}
 	}
 
 	// 使用 getter，使其像属性一样访问

@@ -24,3 +24,17 @@ body {
     overflow: hidden;
     /* 禁止溢出, 防止滚动条影响鼠标选中 */
 }
+
+.viewHelper {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    height: 0px;
+    width: 0px;
+}
+
+.little_gui {
+    position: absolute;
+    left: 0;
+    top: 0;
+}

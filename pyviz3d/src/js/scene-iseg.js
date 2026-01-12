@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { OBJLoader } from     'three/addons/loaders/OBJLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import { ViewHelper } from 'three/addons/helpers/ViewHelper.js';
 import { SegObjects } from './object_select.js'; // 导入 SegObjects 类
 
 
@@ -166,7 +167,7 @@ function onMouseDown(event) {
 	}
 
     if (event.button === 0) { // 检测是否是鼠标左键
-        is_mouse_down = true;
+        mouse_down = 1;
     }
 }
 
@@ -175,7 +176,7 @@ function onMouseUp(event) {
 	// 鼠标抬起的回调函数
 	controls.enabled = true; // 释放鼠标后恢复 OrbitControls 的旋转
     if (event.button === 0) { // 检测是否是鼠标左键
-        is_mouse_down = false;
+        mouse_down = 0;
     }
 }
 
@@ -225,6 +226,7 @@ function handleMeshSelect(event, intersection) {
 	}
 }
 
+
 // function: mouse hang over set color
 function hover_set_color(object, colorAttribute, index, color) {
 	/**
@@ -241,9 +243,11 @@ function hover_set_color(object, colorAttribute, index, color) {
 	}
 	console.assert(index.length == color.length, "index.length must be equal to color.length");
 	// 恢复旧位置原色
+	let prev_index = [];
+	let prev_color = [];
 	if (object._prev_hover.index != null) {
-		const prev_index = object._prev_hover.index
-		const prev_color = object._prev_hover.color
+		prev_index = object._prev_hover.index
+		prev_color = object._prev_hover.color
 		for (let i = 0; i < prev_index.length; i++) {
 			colorAttribute.setXYZ(
 				prev_index[i],		// coord index
@@ -254,9 +258,9 @@ function hover_set_color(object, colorAttribute, index, color) {
 		}
 	}
 	// 记录新位置和原色
-	object._prev_hover.index = index
-	object._prev_hover.color = structuredClone(color)
-	const prev_color = object._prev_hover.color
+	object._prev_hover.index = index;
+	object._prev_hover.color = structuredClone(color);
+	prev_color = object._prev_hover.color;
 	for (let i = 0; i < index.length; i++) {
 		prev_color[i][0] = colorAttribute.getX(index[i]);	// r
 		prev_color[i][1] = colorAttribute.getY(index[i]);	// g
@@ -272,6 +276,11 @@ function hover_set_color(object, colorAttribute, index, color) {
 		);
 	}
 	colorAttribute.needsUpdate = true;
+	// 设置更新范围以减少开销
+	const minIndex = Math.min(...prev_index, ...index); // 获取 index 中的最小值
+	const maxIndex = Math.max(...prev_index, ...index); // 获取 index 中的最大值
+	colorAttribute.updateRange.offset = minIndex * 3; // 根据最小值设置偏移
+	colorAttribute.updateRange.count = (maxIndex - minIndex + 1) * 3; // 更新范围为最大值与最小值之差
 }
 
 
@@ -330,11 +339,23 @@ function onMouseMove(event) {
 		} else if (object instanceof THREE.Mesh){
 			// 处理 mesh
 			const face = intersection.face;
-			if (prev_intersection != null && prev_intersection.faceIndex == intersection.faceIndex) {
+			const faceIndex = intersection.faceIndex;
+			if (prev_intersection != null && prev_intersection.faceIndex == faceIndex) {
+				// 鼠标在同一个 mesh face 上移动
 				need_render = false;
 			} else {
+				// 鼠标移动到了新的 mesh face
 				need_render = true;
 				hover_set_color(object, colorAttribute, [face.a, face.b, face.c], [1, 0, 0]);
+				if (mouse_down) {
+					// 是在按下鼠标后拖动
+					seg_objects.modifyObject({
+						op: 'add',
+						type: 'pos',
+						face: face,
+						faceIndex: faceIndex
+					});
+				}
 			}
 		}
 	} else if (intersection != null) {
@@ -546,8 +567,10 @@ function init_gui(objects) {
 
 
 function render() {
+	renderer.clear();
     renderer.render(scene, camera);
 	// labelRenderer.render(scene, camera);
+	helper.render(renderer);
 }
 
 
@@ -600,7 +623,7 @@ function init(){
 	intersection = null;
 	prev_intersection = null;
 	mouse = new THREE.Vector2();
-	is_mouse_down = false;
+	mouse_down = 0;
 }
 
 
@@ -660,6 +683,16 @@ function update_controls(){
 	controls.addEventListener("change", render);
 	controls.enableKeys = true;
 	controls.enablePan = true; // enable dragging
+	// helper
+	renderer.autoClear = false;
+    helper = new ViewHelper( camera, renderer.domElement );
+    helper.controls = controls;
+    helper.controls.center = controls.target;
+
+    const div = document.createElement( 'div' );
+    div.classList.add('viewHelper');
+    document.body.appendChild( div );
+    div.addEventListener( 'pointerup', (event) => helper.handleClick( event ) );
 }
 
 
@@ -685,12 +718,16 @@ renderer.domElement.addEventListener('mouseup', onMouseUp);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.01, 1000);
 var controls = '';
-const gui = new GUI({autoPlace: true, width: 120});
+var helper = '';
+let div = document.createElement( 'div' );
+div.classList.add('little_gui');
+document.body.appendChild( div );
+const gui = new GUI({container: div, width: 120});
 
 // dict containing all objects of the scene
 let threejs_objects = {};
 // 声明鼠标点击相关变量, 在 init() 中初始化
-let raycaster, intersection, prev_intersection, mouse, is_mouse_down;
+let raycaster, intersection, prev_intersection, mouse, mouse_down;
 // 待分割 object 相关变量
 let seg_objects = new SegObjects({
 	scene: scene,
