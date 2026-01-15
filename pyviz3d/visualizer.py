@@ -9,13 +9,14 @@ from .cuboid import Cuboid
 from .polyline import Polyline
 from .arrow import Arrow
 from .circles_2d import Circles2D
+from .motion import Motion
+from .blender_config import BlenderConfig
 
 import os
 import sys
 import shutil
 import json
 import numpy as np
-import open3d as o3d
 
 def euler_to_quaternion(x: float, y: float, z: float):
     cr = np.cos(x * 0.5)
@@ -36,14 +37,13 @@ class Visualizer:
                  position: np.array = np.array([3.0, 3.0, 3.0]),
                  look_at: np.array = np.array([0.0, 0.0, 0.0]),
                  up: np.array = np.array([0.0, 0.0, 1.0]),
-                 focal_length: float = 28.0, animation=False):
+                 focal_length: float = 28.0):
 
         self.camera = Camera(
             position=np.array(position),
             look_at=np.array(look_at),
             up=np.array(up),
             focal_length=focal_length,
-            animation=animation
         )
         self.elements = {"Camera_0": self.camera}
 
@@ -59,8 +59,8 @@ class Visualizer:
     def save(self,
             path: str,
             port: int=6008,
-            blender_args: dict=None,
-            verbose=True):
+            blender_config: BlenderConfig=None,
+            verbose: bool=True) -> None:
         """Creates the visualization and displays the link to it.
 
         :param path: The path to save the visualization files.
@@ -83,44 +83,47 @@ class Visualizer:
             binary_file_path = os.path.join(directory_destination, name + ".bin")
             nodes_dict[name] = e.get_properties(name + ".bin")
             e.write_binary(binary_file_path)
-            if blender_args:
-                blender_file_oath = os.path.join(directory_destination, name + ".ply")
-                e.write_blender(blender_file_oath)
+            if blender_config:
+                blender_file_path = os.path.join(directory_destination, name + ".ply")
+                e.write_blender(blender_file_path)
 
         # Write json file containing all scene elements
         json_file = os.path.join(directory_destination, "nodes.json")
         with open(json_file, "w") as outfile:
             json.dump(nodes_dict, outfile)
 
-        if not verbose:
-            return
-
         # Display link
-        http_server_string = "python -m SimpleHTTPServer " + str(port)
-        if sys.version[0] == "3":
-            http_server_string = "python -m http.server " + str(port)
-        print("")
-        print(
-            "************************************************************************"
-        )
-        print("1) Start local server:")
-        print("    cd " + directory_destination + "; " + http_server_string)
-        print("2) Open in browser:")
-        print("    http://localhost:" + str(port))
-        print(
-            "************************************************************************"
-        )
+        if verbose:
+          http_server_string = "python -m SimpleHTTPServer " + str(port)
+          if sys.version[0] == "3":
+              http_server_string = "python -m http.server " + str(port)
+          print("")
+          print(
+              "************************************************************************"
+          )
+          print("1) Start local server:")
+          print("    cd " + directory_destination + "; " + http_server_string)
+          print("2) Open in browser:")
+          print("    http://localhost:" + str(port))
+          print(
+              "************************************************************************"
+          )
 
-        if blender_args:
-            self.show_in_blender(path, blender_args, verbose)
+        # Render in blender if arguments are not None
+        if blender_config:
+            self.show_in_blender(path, blender_config, verbose)
 
     def show_in_blender(self,
                         path: str,
-                        blender_args: dict,
+                        blender_config: BlenderConfig,
                         verbose: bool=True):
 
         directory_destination = os.path.abspath(path)
         blender_script_path = os.path.join(directory_destination, "blender_script.py")
+        blender_config_path = os.path.join(directory_destination, "blender_config.json")
+        with open(blender_config_path, 'w') as json_file:
+          json.dump(blender_config.to_dict(), json_file, indent=2)
+          
         with open(blender_script_path, "w") as outfile:
             outfile.write(
 "import bpy\nimport os\n\
@@ -129,9 +132,9 @@ sys.path.append(os.getcwd())\n\
 import blender_tools\n\
 blender_tools.main()")
 
-        cmd = "cd " + directory_destination + "; " + blender_args['executable_path'] + " --background --python blender_script.py"
-        if blender_args['output_prefix']:
-            cmd = cmd + " -- " + blender_args['output_prefix']
+        cmd = "cd " + directory_destination + "; " + blender_config.blender_path + " --background --python blender_script.py"
+        if blender_config.render:
+            cmd = cmd + " -- " + blender_config.output_prefix
         os.system(cmd)
 
         if verbose:
@@ -148,7 +151,7 @@ blender_tools.main()")
         colors: np.array=None,
         normals: np.array=None,
         point_size: int=25,
-        resolution: int=5,
+        resolution: int=3,
         visible: bool=True,
         alpha: float=1.0,
     ):
@@ -265,7 +268,7 @@ blender_tools.main()")
                  translation: np.array=np.array([0.0, 0.0, 0.0]),
                  rotation: np.array=np.array([0.0, 0.0, 0.0, 1.0]),  # [x, y, z, w] - rotate w degrees rad around the axis xyz
                  scale: np.array=np.array([1, 1, 1]),
-                 color: np.array=None,
+                 color: np.array=np.array([200, 200, 200]),
                  visible: bool=True):
         """Adds a polygon mesh to the scene as specified in the path.
          
@@ -331,6 +334,7 @@ blender_tools.main()")
         vertices, triangles = create_superquadric_mesh(scalings[0], scalings[1], scalings[2],
                                                        exponents[0], exponents[1], exponents[2],
                                                        resolution)
+        import open3d as o3d
         mesh_sq = o3d.geometry.TriangleMesh()
         mesh_sq.vertices = o3d.utility.Vector3dVector(vertices)
         mesh_sq.triangles = o3d.utility.Vector3iVector(triangles)
@@ -380,7 +384,7 @@ blender_tools.main()")
         vertices, triangles = create_superquadric_mesh(scalings[0], scalings[1], scalings[2],
                                                     exponents[0], exponents[1], exponents[2],
                                                     resolution)
-
+        import open3d as o3d
         mesh_sq = o3d.geometry.TriangleMesh()
         mesh_sq.vertices = o3d.utility.Vector3dVector(vertices)
         mesh_sq.triangles = o3d.utility.Vector3iVector(triangles)
@@ -404,3 +408,48 @@ blender_tools.main()")
         """Add an arrow."""
 
         self.elements[self.__parse_name(name)] = Arrow(start, end, color, alpha, stroke_width, head_width, visible)
+
+    def add_motion(self, 
+                   name: str, 
+                   motion_type: str, 
+                   motion_direction: np.array, 
+                   motion_origin_pos: np.array,
+                   motion_viz_orient: str, 
+                   motion_dir_color: np.array=np.array([0, 255, 0]), 
+                   motion_origin_color: np.array=np.array([0, 255, 0]), 
+                   visible: bool=True):
+        """
+        Adds a motion vector to the visualizer.
+
+        :param name: 
+            Name of the motion vector, which will be displayed in the visualizer.
+        :param motion_type: 
+            Type of motion: 
+            - "trans" for translational motion
+            - "rot" for rotational motion
+        :param motion_direction: 
+            A 3D vector (shape: 3x1, dtype: float32) representing the direction of the motion vector.
+        :param motion_origin_pos: 
+            A 3D point (shape: 3x1, dtype: float32) representing the origin position of the motion vector.
+        :param motion_viz_orient: 
+            Orientation of the motion vector visualization. 
+            - "outwards": The motion vector points away from the origin.
+            - "inwards": The motion vector points towards the origin.
+        :param motion_dir_color: 
+            RGB color (shape: 3x1, dtype: int32) for the motion vector. 
+            Defaults to green ([0, 255, 0]).
+        :param motion_origin_color: 
+            RGB color (shape: 3x1, dtype: int32) for the origin of the motion vector. 
+            Defaults to green ([0, 255, 0]).
+        :param visible: 
+            Boolean indicating whether the motion vector should be visible in the visualizer. 
+            Defaults to True.
+        
+        :raises AssertionError: 
+            If `motion_type` is not one of ["trans", "rot"] or 
+            if `motion_viz_orient` is not one of ["outwards", "inwards"].
+        """
+        assert motion_type in ["trans", "rot"], f"Unknown motion_type option {motion_type}"
+        assert motion_viz_orient in ["outwards", "inwards"], f"Unknown motion_viz_orient option {motion_viz_orient}"
+
+        self.elements[self.__parse_name(name)] = Motion(motion_type, motion_direction, motion_origin_pos, motion_viz_orient, motion_dir_color, motion_origin_color, visible)
